@@ -1,5 +1,6 @@
 package com.example.pilotcrewrestcalculator
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,13 +11,19 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -24,26 +31,29 @@ import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CrewRestCalculatorScreen() {
-    var numPilots by remember { mutableStateOf(4) }
-    var useStartEnd by remember { mutableStateOf(true) }
+    var numPilots by rememberSaveable { mutableStateOf(4) }
+    var useStartEnd by rememberSaveable { mutableStateOf(true) }
 
-    var flightStart by remember { mutableStateOf("") }
-    var flightEnd by remember { mutableStateOf("") }
-    var totalFlightTime by remember { mutableStateOf("") }
-    var wakeupMinutes by remember { mutableStateOf("15") }
-    var afterTakeoffMinutes by remember { mutableStateOf("15") }
-    var beforeLandingMinutes by remember { mutableStateOf("45") }
-    var restSplits by remember { mutableStateOf("50,50") }
+    var flightStart by rememberSaveable { mutableStateOf("") }
+    var flightEnd by rememberSaveable { mutableStateOf("") }
+    var totalFlightTime by rememberSaveable { mutableStateOf("") }
+    var wakeupMinutes by rememberSaveable { mutableStateOf("15") }
+    var afterTakeoffMinutes by rememberSaveable { mutableStateOf("15") }
+    var beforeLandingMinutes by rememberSaveable { mutableStateOf("45") }
+    var restSplits by rememberSaveable { mutableStateOf("50,50") }
 
+    // Result is not Saveable, but that's ok: it will be recomputed from inputs
     var result by remember { mutableStateOf<List<RestPeriod>>(emptyList()) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
     var totalRestMinutes by remember { mutableStateOf(0) }
-    var showSplitAlert by remember { mutableStateOf(false) }
-    var splitSum by remember { mutableStateOf(100) }
+    var showSplitAlert by rememberSaveable { mutableStateOf(false) }
+    var splitSum by rememberSaveable { mutableStateOf(100) }
     var totalMinutesCalc by remember { mutableStateOf(0) }
 
     // Used to track if flightEnd is currently focused
@@ -75,6 +85,7 @@ fun CrewRestCalculatorScreen() {
     // Helper to scroll to the bottom
     fun scrollToBottom() {
         coroutineScope.launch {
+            scrollState.animateScrollTo(scrollState.maxValue)
             scrollState.animateScrollTo(scrollState.maxValue)
         }
     }
@@ -117,6 +128,13 @@ fun CrewRestCalculatorScreen() {
             } catch (_: Exception) {
                 // Ignore parse errors
             }
+        }
+    }
+
+    // Scroll to bottom when results are recalculated
+    LaunchedEffect(result, error) {
+        if (result.isNotEmpty() || error != null) {
+            scrollToBottom()
         }
     }
 
@@ -406,10 +424,8 @@ fun CrewRestCalculatorScreen() {
                     result = restPeriods
                     error = null
                     totalRestMinutes = totalRestMinutesCalc
-                    scrollToBottom()
                 } catch (e: Exception) {
                     error = "Invalid input. Please check all fields."
-                    scrollToBottom()
                 }
             },
             modifier = Modifier.align(Alignment.End)
@@ -447,10 +463,40 @@ fun CrewRestCalculatorScreen() {
             Text("Rest Periods:", style = MaterialTheme.typography.titleMedium)
             result.forEachIndexed { idx, rest ->
                 val (restH, restM) = rest.durationMinutes / 60 to rest.durationMinutes % 60
-                Text(
-                    "Rest ${idx + 1}: ${restH}h ${restM}m (Start: ${rest.start}, End: ${rest.end}, Wakeup: ${rest.wakeup})",
-                    style = MaterialTheme.typography.bodyLarge
-                )
+                val annotated = buildAnnotatedString {
+                    // Bold "Rest X:"
+                    val restLabel = "Rest ${idx + 1}:"
+                    val restDetails = " ${restH}h ${restM}m (Start: ${rest.start}, End: ${rest.end}, "
+                    append(restLabel)
+                    addStyle(SpanStyle(fontWeight = FontWeight.Bold), 0, restLabel.length)
+                    append(restDetails)
+
+                    // Bold "Wakeup(UTC): HH:MM"
+                    val boldStart = this.length
+                    append("Wakeup(UTC): ${rest.wakeup}")
+                    val boldEnd = this.length
+                    addStyle(SpanStyle(fontWeight = FontWeight.Bold), boldStart, boldEnd)
+
+                    append(", Wakeup(Local): ${rest.wakeupLocal})")
+                }
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                    elevation = CardDefaults.cardElevation(4.dp)
+                ) {
+                    Box(Modifier.padding(16.dp)) {
+                        Text(
+                            annotated,
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -461,7 +507,8 @@ data class RestPeriod(
     val durationMinutes: Int,
     val start: String,
     val end: String,
-    val wakeup: String
+    val wakeup: String,
+    val wakeupLocal: String
 )
 
 fun parseTimeFlexible(input: String): LocalTime {
@@ -494,6 +541,15 @@ fun formatTimeForField(time: LocalTime): String {
     }
 }
 
+fun convertUtcToLocalTime(utcTime: String): String {
+    val utc = LocalTime.parse(utcTime, DateTimeFormatter.ofPattern("H:mm"))
+    val now = ZonedDateTime.now(ZoneId.systemDefault())
+    val utcDateTime = now.withHour(utc.hour).withMinute(utc.minute).withSecond(0).withNano(0)
+        .withZoneSameLocal(ZoneId.of("UTC"))
+    val localDateTime = utcDateTime.withZoneSameInstant(ZoneId.systemDefault())
+    return localDateTime.format(DateTimeFormatter.ofPattern("H:mm"))
+}
+
 fun calculateRestPeriodsWithOffsets(
     startTime: String,
     totalRestMinutes: Int,
@@ -516,7 +572,8 @@ fun calculateRestPeriodsWithOffsets(
                 durationMinutes = thisMinutes,
                 start = start.format(fmt),
                 end = end.format(fmt),
-                wakeup = wakeup.format(fmt)
+                wakeup = wakeup.format(fmt),
+                wakeupLocal = convertUtcToLocalTime(wakeup.format(fmt))
             )
         )
         current = end
@@ -531,7 +588,8 @@ fun calculateRestPeriodsWithOffsets(
             last.copy(
                 durationMinutes = last.durationMinutes + extra,
                 end = newEnd.format(fmt),
-                wakeup = newWake.format(fmt)
+                wakeup = newWake.format(fmt),
+                wakeupLocal = convertUtcToLocalTime(newWake.format(fmt))
             )
     }
     return periodList
