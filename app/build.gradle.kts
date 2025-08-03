@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.pilotcrewrestcalculator"
+    namespace = "com.normflysoftware.pilotcrewrestcalculator"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.pilotcrewrestcalculator"
+        applicationId = "com.normflysoftware.pilotcrewrestcalculator"
         minSdk = 24
         targetSdk = 35
         versionCode = 2
