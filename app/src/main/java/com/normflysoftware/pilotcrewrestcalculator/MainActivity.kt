@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
                             .padding(innerPadding)
                             .fillMaxSize()
                     ) {
-                        CrewRestCalculatorScreen() // <--- this is now imported from CrewRestCalculatorScreen.kt
+                        CrewRestCalculatorScreen()
                     }
                 }
             }

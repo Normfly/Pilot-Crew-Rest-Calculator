@@ -36,11 +36,8 @@ import java.time.ZonedDateTime
 @Composable
 fun CrewRestCalculatorScreen() {
     var numPilots by rememberSaveable { mutableStateOf(4) }
-    var useStartEnd by rememberSaveable { mutableStateOf(true) }
-
-    var flightStart by rememberSaveable { mutableStateOf("") }
-    var flightEnd by rememberSaveable { mutableStateOf("") }
     var totalFlightTime by rememberSaveable { mutableStateOf("") }
+    var flightStart by rememberSaveable { mutableStateOf("") }
     var wakeupMinutes by rememberSaveable { mutableStateOf("15") }
     var afterTakeoffMinutes by rememberSaveable { mutableStateOf("15") }
     var beforeLandingMinutes by rememberSaveable { mutableStateOf("45") }
@@ -52,10 +49,7 @@ fun CrewRestCalculatorScreen() {
     var showSplitAlert by rememberSaveable { mutableStateOf(false) }
     var splitSum by rememberSaveable { mutableStateOf(100) }
     var totalMinutesCalc by remember { mutableStateOf(0) }
-
-    // Track focus state for both fields
-    var flightStartFocused by remember { mutableStateOf(false) }
-    var flightEndFocused by remember { mutableStateOf(false) }
+    var flightEndText by remember { mutableStateOf("") }
 
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -64,7 +58,6 @@ fun CrewRestCalculatorScreen() {
 
     // FocusRequesters for each input field
     val flightStartFocusRequester = remember { FocusRequester() }
-    val flightEndFocusRequester = remember { FocusRequester() }
     val totalFlightTimeFocusRequester = remember { FocusRequester() }
     val afterTakeoffFocusRequester = remember { FocusRequester() }
     val beforeLandingFocusRequester = remember { FocusRequester() }
@@ -73,7 +66,6 @@ fun CrewRestCalculatorScreen() {
 
     // BringIntoViewRequesters for each input field
     val flightStartBringIntoViewRequester = remember { BringIntoViewRequester() }
-    val flightEndBringIntoViewRequester = remember { BringIntoViewRequester() }
     val totalFlightTimeBringIntoViewRequester = remember { BringIntoViewRequester() }
     val afterTakeoffBringIntoViewRequester = remember { BringIntoViewRequester() }
     val beforeLandingBringIntoViewRequester = remember { BringIntoViewRequester() }
@@ -84,66 +76,17 @@ fun CrewRestCalculatorScreen() {
     fun scrollToBottom() {
         coroutineScope.launch {
             scrollState.animateScrollTo(scrollState.maxValue)
-            scrollState.animateScrollTo(scrollState.maxValue)
         }
     }
 
-    // Only update totalFlightTime if both flightStart and flightEnd are entered and neither is focused
-    LaunchedEffect(flightStart, flightEnd, flightStartFocused, flightEndFocused, useStartEnd) {
-        if (
-            useStartEnd &&
-            flightStart.isNotBlank() &&
-            flightEnd.isNotBlank() &&
-            !flightStartFocused &&
-            !flightEndFocused
-        ) {
-            try {
-                val start = parseTimeFlexible(flightStart)
-                val end = parseTimeFlexible(flightEnd)
-                val diffMinutes = if (end.isAfter(start) || end == start) {
-                    Duration.between(start, end).toMinutes().toInt()
-                } else {
-                    Duration.between(start, end).toMinutes().toInt() + 24 * 60
-                }
-                if (diffMinutes >= 0) {
-                    val hours = diffMinutes / 60
-                    val mins = diffMinutes % 60
-                    totalFlightTime = if (hours < 10) {
-                        String.format("%d%02d", hours, mins)
-                    } else {
-                        String.format("%02d%02d", hours, mins)
-                    }
-                }
-            } catch (_: Exception) {
-                // Ignore parse errors
-            }
-        }
-    }
+    // Track when Calculate is pressed
+    var calculated by remember { mutableStateOf(false) }
 
-    // Only update flightEnd if it is not focused and both flightStart and totalFlightTime are provided
-    LaunchedEffect(flightStart, totalFlightTime, flightEndFocused, useStartEnd) {
-        if (
-            useStartEnd &&
-            !flightEndFocused &&
-            flightStart.isNotBlank() &&
-            totalFlightTime.isNotBlank()
-        ) {
-            try {
-                val start = parseTimeFlexible(flightStart)
-                val total = parseTimeFlexible(totalFlightTime)
-                val minutesToAdd = total.hour * 60 + total.minute
-                val end = start.plusMinutes(minutesToAdd.toLong())
-                flightEnd = formatTimeForField(end)
-            } catch (_: Exception) {
-                // Ignore parse errors
-            }
-        }
-    }
-
-    // Scroll to bottom when results are recalculated
-    LaunchedEffect(result, error) {
-        if (result.isNotEmpty() || error != null) {
+    // After calculation, scroll to bottom if needed
+    LaunchedEffect(result, error, calculated) {
+        if ((result.isNotEmpty() || error != null) && calculated) {
             scrollToBottom()
+            calculated = false
         }
     }
 
@@ -174,116 +117,72 @@ fun CrewRestCalculatorScreen() {
             Button(
                 onClick = {
                     numPilots = 4
-                    restSplits = "25,25,25,25"
+                    restSplits = "50,50"
                 },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (numPilots == 4) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                 )
             ) { Text("4") }
         }
+
         Spacer(Modifier.height(16.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Input: ")
-            Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = { useStartEnd = true },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (useStartEnd) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) { Text("Start/End") }
-            Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = { useStartEnd = false },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (!useStartEnd) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) { Text("Total Time") }
-        }
-        Spacer(Modifier.height(16.dp))
-        if (useStartEnd) {
-            OutlinedTextField(
-                value = flightStart,
-                onValueChange = { flightStart = it.filter { ch -> ch.isDigit() } },
-                label = { Text("Flight Start (HMM or HHMM)") },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    imeAction = ImeAction.Next
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = {
-                        flightEndFocusRequester.requestFocus()
-                    }
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(flightStartFocusRequester)
-                    .bringIntoViewRequester(flightStartBringIntoViewRequester)
-                    .onFocusChanged { focusState ->
-                        flightStartFocused = focusState.isFocused
-                        if (focusState.isFocused) {
-                            coroutineScope.launch {
-                                flightStartBringIntoViewRequester.bringIntoView()
-                            }
+
+        OutlinedTextField(
+            value = totalFlightTime,
+            onValueChange = { totalFlightTime = it.filter { ch -> ch.isDigit() } },
+            label = { Text("Total Flight Time (HMM or HHMM)") },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Next
+            ),
+            keyboardActions = KeyboardActions(
+                onNext = {
+                    flightStartFocusRequester.requestFocus()
+                }
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(totalFlightTimeFocusRequester)
+                .bringIntoViewRequester(totalFlightTimeBringIntoViewRequester)
+                .onFocusChanged { focusState ->
+                    if (focusState.isFocused) {
+                        coroutineScope.launch {
+                            totalFlightTimeBringIntoViewRequester.bringIntoView()
                         }
                     }
-            )
-            fieldIndex++
-            OutlinedTextField(
-                value = flightEnd,
-                onValueChange = { flightEnd = it.filter { ch -> ch.isDigit() } },
-                label = { Text("Flight End (HMM or HHMM)") },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    imeAction = ImeAction.Next
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = {
-                        afterTakeoffFocusRequester.requestFocus()
-                    }
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(flightEndFocusRequester)
-                    .bringIntoViewRequester(flightEndBringIntoViewRequester)
-                    .onFocusChanged { focusState ->
-                        flightEndFocused = focusState.isFocused
-                        if (focusState.isFocused) {
-                            coroutineScope.launch {
-                                flightEndBringIntoViewRequester.bringIntoView()
-                            }
-                        }
-                    }
-            )
-            fieldIndex++
-        } else {
-            OutlinedTextField(
-                value = totalFlightTime,
-                onValueChange = { totalFlightTime = it.filter { ch -> ch.isDigit() } },
-                label = { Text("Total Flight Time (HMM or HHMM)") },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    imeAction = ImeAction.Next
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = {
-                        afterTakeoffFocusRequester.requestFocus()
-                    }
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(totalFlightTimeFocusRequester)
-                    .bringIntoViewRequester(totalFlightTimeBringIntoViewRequester)
-                    .onFocusChanged { focusState ->
-                        if (focusState.isFocused) {
-                            coroutineScope.launch {
-                                totalFlightTimeBringIntoViewRequester.bringIntoView()
-                            }
-                        }
-                    }
-            )
-            fieldIndex++
-        }
+                }
+        )
+        fieldIndex++
+
         Spacer(Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = flightStart,
+            onValueChange = { flightStart = it.filter { ch -> ch.isDigit() } },
+            label = { Text("Flight Start (HMM or HHMM)") },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Next
+            ),
+            keyboardActions = KeyboardActions(
+                onNext = {
+                    afterTakeoffFocusRequester.requestFocus()
+                }
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(flightStartFocusRequester)
+                .bringIntoViewRequester(flightStartBringIntoViewRequester)
+                .onFocusChanged { focusState ->
+                    if (focusState.isFocused) {
+                        coroutineScope.launch {
+                            flightStartBringIntoViewRequester.bringIntoView()
+                        }
+                    }
+                }
+        )
+        fieldIndex++
+
         OutlinedTextField(
             value = afterTakeoffMinutes,
             onValueChange = { afterTakeoffMinutes = it.filter { ch -> ch.isDigit() } },
@@ -396,6 +295,7 @@ fun CrewRestCalculatorScreen() {
             onClick = {
                 focusManager.clearFocus()
                 keyboardController?.hide()
+                calculated = true
                 try {
                     val splits = restSplits.split(",").map { it.trim().toIntOrNull() ?: 0 }
                     val splitsSum = splits.sum()
@@ -408,24 +308,18 @@ fun CrewRestCalculatorScreen() {
                     val afterTakeoff = afterTakeoffMinutes.toIntOrNull() ?: 15
                     val beforeLanding = beforeLandingMinutes.toIntOrNull() ?: 45
 
-                    totalMinutesCalc = if (useStartEnd) {
-                        val start = parseTimeFlexible(flightStart)
-                        val end = parseTimeFlexible(flightEnd)
-                        val minutes = if (end.isAfter(start) || end == start) {
-                            Duration.between(start, end).toMinutes().toInt()
-                        } else {
-                            Duration.between(start, end).toMinutes().toInt() + 24 * 60
-                        }
-                        minutes
-                    } else {
-                        val total = parseTimeFlexible(totalFlightTime)
-                        total.hour * 60 + total.minute
-                    }
+                    val start = parseTimeFlexible(flightStart)
+                    val total = parseTimeFlexible(totalFlightTime)
+                    val minutesToAdd = total.hour * 60 + total.minute
+                    val end = start.plusMinutes(minutesToAdd.toLong())
+                    val endForField = formatTimePad(end)
+                    flightEndText = endForField
 
+                    totalMinutesCalc = minutesToAdd
                     val totalRestMinutesCalc = (totalMinutesCalc - afterTakeoff - beforeLanding).coerceAtLeast(0)
 
                     val restPeriods = calculateRestPeriodsWithOffsets(
-                        startTime = if (useStartEnd) formatTime(parseTimeFlexible(flightStart).plusMinutes(afterTakeoff.toLong())) else formatTime(LocalTime.of(0, 0).plusMinutes(afterTakeoff.toLong())),
+                        startTime = formatTimePad(start.plusMinutes(afterTakeoff.toLong())),
                         totalRestMinutes = totalRestMinutesCalc,
                         splits = splits,
                         wakeupMinutes = dWakeup
@@ -461,12 +355,23 @@ fun CrewRestCalculatorScreen() {
         } else if (result.isNotEmpty()) {
             val (hrs, mins) = totalRestMinutes.let { it / 60 to it % 60 }
             val (totHrs, totMins) = totalMinutesCalc.let { it / 60 to it % 60 }
+            val startForDisplay = try {
+                val s = parseTimeFlexible(flightStart)
+                formatTimePad(s)
+            } catch (_: Exception) {
+                "--:--"
+            }
             Text(
-                "Total Time: ${totHrs}h ${totMins}m (${totalMinutesCalc} min)",
+                "Total Time: ${pad2(totHrs)}h ${pad2(totMins)}m (${pad2Digits(totalMinutesCalc)} min)",
                 style = MaterialTheme.typography.titleMedium
             )
             Text(
-                "Total Rest: ${hrs}h ${mins}m (${totalRestMinutes} min)",
+                "Total Rest: ${pad2(hrs)}h ${pad2(mins)}m (${pad2Digits(totalRestMinutes)} min)",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Flight Start: ${startForDisplay}, Flight End: ${flightEndText}",
                 style = MaterialTheme.typography.titleMedium
             )
             Spacer(Modifier.height(8.dp))
@@ -476,7 +381,7 @@ fun CrewRestCalculatorScreen() {
                 val annotated = buildAnnotatedString {
                     // Bold "Rest X:"
                     val restLabel = "Rest ${idx + 1}:"
-                    val restDetails = " ${restH}h ${restM}m (Start: ${rest.start}, End: ${rest.end}, "
+                    val restDetails = " ${pad2(restH)}h ${pad2(restM)}m (Start: ${rest.start}, End: ${rest.end}, "
                     append(restLabel)
                     addStyle(SpanStyle(fontWeight = FontWeight.Bold), 0, restLabel.length)
                     append(restDetails)
@@ -521,6 +426,14 @@ data class RestPeriod(
     val wakeupLocal: String
 )
 
+fun pad2(i: Int): String = i.toString().padStart(2, '0')
+fun pad2Digits(i: Int): String = i.toString().padStart(3, '0')
+fun formatTimePad(time: LocalTime): String =
+    time.format(DateTimeFormatter.ofPattern("HH:mm"))
+
+fun formatTimeForFieldPad(time: LocalTime): String =
+    time.format(DateTimeFormatter.ofPattern("HHmm"))
+
 fun parseTimeFlexible(input: String): LocalTime {
     val s = input.trim().padStart(3, '0')
     return when (s.length) {
@@ -539,25 +452,21 @@ fun parseTimeFlexible(input: String): LocalTime {
 }
 
 fun formatTime(time: LocalTime): String =
-    time.format(DateTimeFormatter.ofPattern("H:mm"))
+    time.format(DateTimeFormatter.ofPattern("HH:mm"))
 
 fun formatTimeForField(time: LocalTime): String {
     val hour = time.hour
     val minute = time.minute
-    return if (hour < 10) {
-        String.format("%d%02d", hour, minute)
-    } else {
-        String.format("%02d%02d", hour, minute)
-    }
+    return String.format("%02d%02d", hour, minute)
 }
 
 fun convertUtcToLocalTime(utcTime: String): String {
-    val utc = LocalTime.parse(utcTime, DateTimeFormatter.ofPattern("H:mm"))
+    val utc = LocalTime.parse(utcTime, DateTimeFormatter.ofPattern("HH:mm"))
     val now = ZonedDateTime.now(ZoneId.systemDefault())
     val utcDateTime = now.withHour(utc.hour).withMinute(utc.minute).withSecond(0).withNano(0)
         .withZoneSameLocal(ZoneId.of("UTC"))
     val localDateTime = utcDateTime.withZoneSameInstant(ZoneId.systemDefault())
-    return localDateTime.format(DateTimeFormatter.ofPattern("H:mm"))
+    return localDateTime.format(DateTimeFormatter.ofPattern("HH:mm"))
 }
 
 fun calculateRestPeriodsWithOffsets(
@@ -566,7 +475,7 @@ fun calculateRestPeriodsWithOffsets(
     splits: List<Int>,
     wakeupMinutes: Int
 ): List<RestPeriod> {
-    val fmt = DateTimeFormatter.ofPattern("H:mm")
+    val fmt = DateTimeFormatter.ofPattern("HH:mm")
     var current = LocalTime.parse(startTime, fmt)
     val periodList = mutableListOf<RestPeriod>()
     var minutesUsed = 0
